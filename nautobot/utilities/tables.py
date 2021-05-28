@@ -2,12 +2,16 @@ import django_tables2 as tables
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models.fields.related import RelatedField
 from django.urls import reverse
 from django.utils.safestring import mark_safe
 from django.utils.text import Truncator
 from django_tables2.data import TableQuerysetData
+from django_tables2.utils import Accessor
+
+from nautobot.extras.models import CustomField
 
 
 class BaseTable(tables.Table):
@@ -23,6 +27,11 @@ class BaseTable(tables.Table):
         }
 
     def __init__(self, *args, user=None, **kwargs):
+        # Add custom field columns
+        obj_type = ContentType.objects.get_for_model(self._meta.model)
+        for cf in CustomField.objects.filter(content_types=obj_type):
+            self.base_columns[f'cf_{cf.name}'] = CustomFieldColumn(cf)
+
         super().__init__(*args, **kwargs)
 
         # Set default empty_text if none was provided
@@ -205,6 +214,24 @@ class ButtonsColumn(tables.TemplateColumn):
 
     def header(self):
         return ""
+
+
+class CustomFieldColumn(tables.Column):
+    """
+    Display custom fields in the appropriate format.
+    """
+    def __init__(self, customfield, *args, **kwargs):
+        self.customfield = customfield
+        kwargs['accessor'] = Accessor(f'custom_field_data__{customfield.name}')
+        if 'verbose_name' not in kwargs:
+            kwargs['verbose_name'] = customfield.label or customfield.name
+
+        super().__init__(*args, **kwargs)
+
+    def render(self, value):
+        if isinstance(value, list):
+            return ', '.join(v for v in value)
+        return value or self.default
 
 
 class ChoiceFieldColumn(tables.Column):
